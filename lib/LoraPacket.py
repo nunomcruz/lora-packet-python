@@ -100,7 +100,7 @@ class UserFields(Dict[str, Union[bytes, int, Dict[str, bool]]]):
         FCnt: Optional[Union[bytes, int]] = None,
         MType: Optional[Union[bytes, int, str]] = None,
         DevAddr: Optional[bytes] = None,
-        payload: Optional[Union[bytes, str]] = None,
+        Payload: Optional[Union[bytes, str]] = None,
         FCtrl: Optional[Dict[str, bool]] = None,
         JoinReqType: Optional[Union[bytes, int]] = None,
         AppSKey: Optional[bytes] = None,
@@ -120,7 +120,7 @@ class UserFields(Dict[str, Union[bytes, int, Dict[str, bool]]]):
         self["FCnt"] = FCnt
         self["MType"] = MType
         self["DevAddr"] = DevAddr
-        self["payload"] = payload
+        self["Payload"] = Payload
         self["FCtrl"] = FCtrl
         self["JoinReqType"] = JoinReqType
         self["AppSKey"] = AppSKey
@@ -140,8 +140,9 @@ class UserFields(Dict[str, Union[bytes, int, Dict[str, bool]]]):
             self["MType"] = bytes([self["MType"]])
         if isinstance(self["FOpts"], str):
             self["FOpts"] = unhexlify(self["FOpts"])
-        if isinstance(self["payload"], str):
-            self["payload"] = unhexlify(self["payload"])
+        if isinstance(self["Payload"], str):
+            #self["Payload"] = unhexlify(self["Payload"])
+            self["Payload"] = self["Payload"].encode()
         if isinstance(self["CFList"], str):
             self["CFList"] = unhexlify(self["CFList"])
         if isinstance(self["DevEUI"], str):
@@ -264,12 +265,12 @@ class UserFields(Dict[str, Union[bytes, int, Dict[str, bool]]]):
         self["DevAddr"] = value
 
     @property
-    def payload(self) -> Optional[Union[bytes, str]]:
-        return self.get("payload")
+    def Payload(self) -> Optional[Union[bytes, str]]:
+        return self.get("Payload")
 
-    @payload.setter
-    def payload(self, value: Optional[Union[bytes, str]]):
-        self["payload"] = value
+    @Payload.setter
+    def Payload(self, value: Optional[Union[bytes, str]]):
+        self["Payload"] = value
 
     @property
     def FCtrl(self) -> Optional[Dict[str, bool]]:
@@ -378,7 +379,7 @@ class LoraPacket:
         return packet
 
     def _get_mtype(self) -> int:
-        type = MTypeEnum(self.MHDR[0] >> 1) if self.MHDR else None
+        type = MTypeEnum(self.MHDR[0] >> 5) if self.MHDR else None
         return type
 
 
@@ -441,27 +442,27 @@ class LoraPacket:
 
             self.MACPayloadWithMIC = self.PHYPayload[1:-4]
         elif self.MHDR and self.MIC and self.is_data_message():
-          if self.DevAddr and self.FCtrl and self.FPort and self.FCnt and self.FRMPayload and self.FOpts:
-            self.FHDR = b"".join([
-                self.DevAddr,
-                self.FCtrl,
-                self.FCnt,
-                self.FOpts
-            ])
+            if self.DevAddr and self.FCtrl and self.FPort and self.FCnt and self.FRMPayload and self.FOpts is not None:
+                self.FHDR = b"".join([
+                    reverse_buffer(self.DevAddr),
+                    self.FCtrl,
+                    reverse_buffer(self.FCnt),
+                    self.FOpts
+                ])
 
-            self.MACPayload = b"".join([
-                self.FHDR,
-                self.FPort,
-                self.FRMPayload
-            ])
+                self.MACPayload = b"".join([
+                    self.FHDR,
+                    self.FPort,
+                    self.FRMPayload
+                ])
 
-            self.PHYPayload = b"".join([
-                self.MHDR,
-                self.MACPayload,
-                self.MIC
-            ])
+                self.PHYPayload = b"".join([
+                    self.MHDR,
+                    self.MACPayload,
+                    self.MIC
+                ])
 
-            self.MACPayloadWithMIC = self.PHYPayload[1:-4]
+                self.MACPayloadWithMIC = self.PHYPayload[1:-4]
 
     def _parse_data_message(self, buffer: bytes):
         if len(buffer) < 5 + 7:
@@ -592,13 +593,13 @@ class LoraPacket:
 
       # Provide Direction as a string
     def get_direction(self) -> str:
-        if self.is_data_message():
-            if self.get_fctrl_adr():
-                return "up"
-            else:
-                return "down"
-        else:
+        mtype = self._get_mtype()
+        if mtype.value > 5:
             return "N/A"
+        elif mtype.value % 2 == 0:
+            return "up"
+        else:
+            return "down"
 
     # Provide FCnt as a number
     def get_fcnt(self) -> int:
@@ -680,7 +681,7 @@ class LoraPacket:
             fields["FPort"] = self.FPort.hex()
             fields["FRMPayload"] = self.FRMPayload.hex()
             fields["MType"] = self.MType.hex()
-            fields["payload"] = self.FRMPayload.hex()
+            fields["Payload"] = self.FRMPayload.hex()
 
         elif self.is_join_request_message():
             fields["AppEUI"] = self.AppEUI.hex()
@@ -725,40 +726,124 @@ class LoraPacket:
 
     @staticmethod
     def from_fields(fields: UserFields) -> 'LoraPacket':
+        fields = UserFields(**fields)
         if not fields:
             raise ValueError("UserFields are required")
 
         if not fields.get("MType"):
             raise ValueError("MType is required")
 
-        if fields["MType"] == MTypeEnum.JOIN_REQUEST:
+        if DESCRIPTIONS_MTYPE[fields["MType"]] == MTypeEnum.JOIN_REQUEST:
             return LoraPacket.from_join_request_fields(fields)
-        elif fields["MType"] == MTypeEnum.JOIN_ACCEPT:
+        elif DESCRIPTIONS_MTYPE[fields["MType"]] == MTypeEnum.JOIN_ACCEPT:
             return LoraPacket.from_join_accept_fields(fields)
-        elif fields["MType"] == MTypeEnum.REJOIN_REQUEST:
+        elif DESCRIPTIONS_MTYPE[fields["MType"]] == MTypeEnum.REJOIN_REQUEST:
             return LoraPacket.from_rejoin_request_fields(fields)
-        elif fields["MType"] in [MTypeEnum.UNCONFIRMED_DATA_UP, MTypeEnum.UNCONFIRMED_DATA_DOWN, MTypeEnum.CONFIRMED_DATA_UP, MTypeEnum.CONFIRMED_DATA_DOWN]:
+        elif DESCRIPTIONS_MTYPE[fields["MType"]] in [MTypeEnum.UNCONFIRMED_DATA_UP, MTypeEnum.UNCONFIRMED_DATA_DOWN, MTypeEnum.CONFIRMED_DATA_UP, MTypeEnum.CONFIRMED_DATA_DOWN]:
             return LoraPacket.from_data_message_fields(fields)
         else:
             raise ValueError(f"Invalid message type: {fields['MType']}")
 
     @staticmethod
     def from_data_message_fields(fields: UserFields) -> 'LoraPacket':
-        if not fields.get("DevAddr"):
-            raise ValueError("DevAddr is required")
-
-        if not fields.get("payload"):
-            raise ValueError("payload is required")
-
         packet = LoraPacket()
-        packet.DevAddr = fields["DevAddr"]
-        packet.FRMPayload = fields["payload"]
-        packet.MType = fields["MType"]
-        packet.FCnt = fields.get("FCnt", b"\x00\x00")
-        packet.FOpts = fields.get("FOpts", b"")
-        packet.FPort = fields.get("FPort", b"\x01")
-        packet.FCtrl = fields.get("FCtrl", b"\x00")
+        if fields.get("AppSKey"):
+            packet.AppSKey = fields["AppSKey"]
+
+        if fields.get("NwkSKey"):
+            packet.NwkSKey = fields["NwkSKey"]
+
+        if fields.get("DevAddr") and len(fields["DevAddr"]) == 4:
+            packet.DevAddr = bytes(fields["DevAddr"])
+        else:
+            raise ValueError("DevAddr is required in a suitable format")
+
+        if isinstance(fields.get("Payload"), str):
+            packet.FRMPayload = bytes(fields["Payload"], "utf-8")
+        elif isinstance(fields.get("Payload"), bytes):
+            packet.FRMPayload = fields["Payload"]
+        else:
+            raise ValueError("Payload is required in a suitable format")
+
+        if fields["MType"] is not None:
+            if isinstance(fields["MType"], int):
+                packet.MHDR = bytes([fields["MType"] << 5])
+            elif isinstance(fields["MType"], str):
+                mhdr_idx = DESCRIPTIONS_MTYPE.get(fields["MType"])
+                if mhdr_idx is not None:
+                    packet.MHDR = bytes([mhdr_idx.value << 5])
+                else:
+                    raise ValueError("MType is unknown")
+            else:
+                raise ValueError("MType is required in a suitable format")
+
+        if fields["FCnt"] is not None:
+            if isinstance(fields["FCnt"], bytes) and len(fields["FCnt"]) == 2:
+                packet.FCnt = fields["FCnt"]
+            elif isinstance(fields["FCnt"], int):
+                packet.FCnt = fields["FCnt"].to_bytes(2, byteorder="big")
+            else:
+                raise ValueError("FCnt is required in a suitable format")
+
+        if fields["FOpts"] is not None:
+            if isinstance(fields["FOpts"], str):
+                packet.FOpts = bytes.fromhex(fields["FOpts"])
+            elif isinstance(fields["FOpts"], bytes):
+                packet.FOpts = fields["FOpts"]
+            else:
+                raise ValueError("FOpts is required in a suitable format")
+
+            if len(packet.FOpts) > 15:
+                raise ValueError("Too many options for piggybacking")
+        else:
+            packet.FOpts = bytes()
+
+        fctrl = 0
+        if fields.get("FCtrl", {}).get("ADR"):
+            fctrl |= Masks.FCTRL_ADR.value
+        if fields.get("FCtrl", {}).get("ADRACKReq"):
+            fctrl |= Masks.FCTRL_ADRACKREQ.value
+        if fields.get("FCtrl", {}).get("ACK"):
+            fctrl |= Masks.FCTRL_ACK.value
+        if fields.get("FCtrl", {}).get("FPending"):
+            fctrl |= Masks.FCTRL_FPENDING.value
+
+        fctrl |= len(packet.FOpts) & 0x0F
+        packet.FCtrl = bytes([fctrl])
+
+        if fields["FPort"] is not None:
+            if 0 <= fields.get("FPort") <= 255:
+                packet.FPort = bytes([fields["FPort"]])
+            else:
+                raise ValueError("FPort is required in a suitable format")
+
+        if packet.MHDR is None:
+            packet.MHDR = bytes([MTypeEnum.UNCONFIRMED_DATA_UP << 5])
+
+        if packet.FPort is None:
+            if (packet.FRMPayload is not None) and len(packet.FRMPayload) > 0:
+                packet.FPort = b'\x01'
+            else:
+                packet.FPort = b'\x00'
+
+        if packet.FPort is None:
+            packet.FPort = b'\x01'
+
+        if packet.FCnt is None:
+            packet.FCnt = b'\x00\x00'
+
+        if packet.MIC is None:
+            packet.MIC = b'\xee' * 4
+
         packet._update_packet()
+        # do the MIC calculation
+        if packet.FPort is not None and packet.FRMPayload is not None and packet.AppSKey is not None and packet.NwkSKey is not None:
+            packet.FRMPayload = packet.decrypt() # encrypt and decrypt are the same XOR operation
+            packet._update_packet()
+            packet.recalculate_mic()
+            #packet.MIC = packet.calculate_mic()
+
+
         return packet
 
     @staticmethod
@@ -840,7 +925,7 @@ class LoraPacket:
             msg += "( PHYPayload = MHDR[1] | MACPayload[..] | MIC[4] )\n"
             msg += f"MHDR            = {self.MHDR.hex().upper()}\n"
             msg += f"MACPayload = {self.MACPayload.hex().upper()}\n"
-            msg += f"MIC                = {self.MIC.hex().upper()}" + " MIC (OK)\n" if (self.verify_mic() and self.AppSKey) else " MIC (BAD != " + as_hex_string(self.calculate_mic()) + ")\n" if self.AppSKey else "\n"
+            msg += f"MIC                = {self.MIC.hex().upper()}" + " MIC (OK)\n" if (self.AppSKey and self.verify_mic()) else " MIC (BAD != " + as_hex_string(self.calculate_mic()) + ")\n" if self.AppSKey else "\n"
             msg += "\n"
 
             msg += "( MACPayload = AppEUI[8] | DevEUI[8] | DevNonce[2] )\n"
@@ -887,7 +972,7 @@ class LoraPacket:
             msg += "( PHYPayload = MHDR[1] | MACPayload[..] | MIC[4] )\n"
             msg += f"MHDR            = {self.MHDR.hex().upper()}\n"
             msg += f"MACPayload = {self.MACPayload.hex().upper()}\n"
-            msg += f"MIC                = {self.MIC.hex().upper()}" + " MIC (OK)\n" if (self.verify_mic() and self.AppSKey) else " MIC (BAD != " + as_hex_string(self.calculate_mic()) + ")\n" if self.AppSKey else "\n"
+            msg += f"MIC                = {self.MIC.hex().upper()}" + " MIC (OK)\n" if (self.AppSKey and self.verify_mic()) else " MIC (BAD != " + as_hex_string(self.calculate_mic()) + ")\n" if self.AppSKey else "\n"
             msg += "\n"
 
             if self.RejoinType[0] == 0 or self.RejoinType[0] == 2:
@@ -911,7 +996,7 @@ class LoraPacket:
             msg += "( PHYPayload = MHDR[1] | MACPayload[..] | MIC[4] )\n"
             msg += f"MHDR            = {self.MHDR.hex().upper()}\n"
             msg += f"MACPayload = {self.MACPayload.hex().upper()}\n"
-            msg += f"MIC                = {self.MIC.hex().upper()}" + " MIC (OK)\n" if (self.verify_mic() and self.NwkSKey) else " MIC (BAD != " + as_hex_string(self.calculate_mic()) + ")\n" if self.NwkSKey else "\n"
+            msg += f"MIC                = {self.MIC.hex().upper()}" + " MIC (OK)\n" if (self.NwkSKey and self.verify_mic()) else " MIC (BAD != " + as_hex_string(self.calculate_mic()) + ")\n" if self.NwkSKey else "\n"
             msg += "\n"
 
             msg += "( MACPayload = FHDR | FPort | FRMPayload )\n"
@@ -946,6 +1031,8 @@ class LoraPacket:
         ConfFCntDownTxDrTxCh: Optional[bytes] = None
     ) -> bytes:
         LWVersion = LoRaWANVersion.V1_0
+        if not self.NwkSKey:
+            raise ValueError("NwkSKey is required")
 
         if self.is_join_request_message():
             if not self.AppSKey:
@@ -1041,8 +1128,8 @@ class LoraPacket:
                 if not self.NwkSKey or len(self.NwkSKey) != 16:
                     raise ValueError("Expected a NwkSKey with length 16")
                 cmac_key = self.NwkSKey
-                cmac_input = self.JoinReqType + self.JoinEUI + \
-                    self.DevNonce + self.MHDR + self.MACPayload
+                cmac_input = self.JoinReqType + reverse_buffer(self.JoinEUI) + \
+                    reverse_buffer(self.DevNonce) + self.MHDR + self.MACPayload
 
             cmac = CMAC.new(cmac_key, ciphermod=AES)
             cmac.update(cmac_input)
@@ -1067,7 +1154,7 @@ class LoraPacket:
             if not self.MACPayload:
                 raise ValueError("Expected MACPayload to be defined")
             if not FCntMSBytes:
-                FCntMSBytes = bytes.fromhex("0000")
+                FCntMSBytes = b'\x00\x00'
 
             if ConfFCntDownTxDrTxCh:
                 if not self.AppSKey or len(self.AppSKey) != 16:
@@ -1081,15 +1168,15 @@ class LoraPacket:
 
 
             if self.get_direction() == "up":
-                dir_bytes = b'0'
+                dir_bytes = b'\x00'
             elif self.get_direction() == "down":
-                dir_bytes = b'1'
+                dir_bytes = b'\x01'
                 if not ConfFCntDownTxDrTxCh:
-                    ConfFCntDownTxDrTxCh = bytes(4)
+                    ConfFCntDownTxDrTxCh = b'\x00\x00\x00\x00'
                 elif ConfFCntDownTxDrTxCh and len(ConfFCntDownTxDrTxCh) != 2:
                     raise ValueError("Expected a ConfFCntDown with length 2")
                 else:
-                    ConfFCntDownTxDrTxCh = ConfFCntDownTxDrTxCh + bytes(2)
+                    ConfFCntDownTxDrTxCh += b'\x00\x00'
             else:
                 raise ValueError("Expecting direction to be either 'up' or 'down'")
 
@@ -1098,9 +1185,10 @@ class LoraPacket:
                     raise ValueError("Expected a ConfFCntDownTxDrTxCh with length 4 (ConfFCnt | TxDr | TxCh)")
 
                 if self.get_fctrl_ack() or (is_uplink_and_is_1_1 and self.get_fport() == 0):
-                    ConfFCntDownTxDrTxCh = bytes([ConfFCntDownTxDrTxCh[1], ConfFCntDownTxDrTxCh[0], ConfFCntDownTxDrTxCh[2], ConfFCntDownTxDrTxCh[3]])
+                    #ConfFCntDownTxDrTxCh = bytes([ConfFCntDownTxDrTxCh[1], ConfFCntDownTxDrTxCh[0], ConfFCntDownTxDrTxCh[2], ConfFCntDownTxDrTxCh[3]])
+                    ConfFCntDownTxDrTxCh = ConfFCntDownTxDrTxCh[1::-1] + ConfFCntDownTxDrTxCh[2:]
                 else:
-                    ConfFCntDownTxDrTxCh = bytes(2) + ConfFCntDownTxDrTxCh[2:]
+                    ConfFCntDownTxDrTxCh = b'\x00\x00' + ConfFCntDownTxDrTxCh[2:]
 
             msgLen = len(self.MHDR) + len(self.MACPayload)
 
@@ -1110,8 +1198,8 @@ class LoraPacket:
                 reverse_buffer(self.DevAddr) + \
                 reverse_buffer(self.FCnt) + \
                 FCntMSBytes + \
-                b'0' + \
-                bytes([msgLen])
+                b'\x00' + \
+                msgLen.to_bytes(1)
 
             cmac_input = B0 + self.MHDR + self.MACPayload
 
@@ -1128,8 +1216,8 @@ class LoraPacket:
                     reverse_buffer(self.DevAddr) + \
                     reverse_buffer(self.FCnt) + \
                     FCntMSBytes + \
-                    b'0' + \
-                    bytes([msgLen])
+                    b'\x00' + \
+                   msgLen.to_bytes(1)
 
                 cmac_s_input = B1 + self.MHDR + self.MACPayload
                 cmac_s = CMAC.new(self.AppSKey, ciphermod=AES)
@@ -1170,7 +1258,7 @@ class LoraPacket:
         if not self.MHDR:
             raise ValueError("Missing MHDR")
         self.PHYPayload = self.MHDR + self.MACPayload + self.MIC
-        self.MACPayloadWithMIC = self.PHYPayload.slice(self.MHDR.length, self.PHYPayload.length)
+        self.MACPayloadWithMIC = self.PHYPayload[len(self.MHDR):len(self.PHYPayload)]
 
     def decrypt(self, fCntMSB32: bytes = None) -> bytes:
         if not self.NwkSKey:
@@ -1232,7 +1320,7 @@ class LoraPacket:
         a_fcnt_down = False
 
         if self.get_direction() == "up":
-            direction = b'0'
+            direction = b'\x00'
         elif self.get_direction() == "down":
             direction = b'1'
             if self.FPort is not None and self.get_fport() > 0:
