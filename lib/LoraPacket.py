@@ -91,6 +91,7 @@ class UserFields(Dict[str, Union[bytes, int, Dict[str, bool]]]):
         RxDelay: Optional[Union[bytes, int]] = None,
         DLSettings: Optional[Union[bytes, int]] = None,
         NetID: Optional[bytes] = None,
+        JoinEUI: Optional[bytes] = None,
         AppNonce: Optional[bytes] = None,
         DevNonce: Optional[bytes] = None,
         DevEUI: Optional[bytes] = None,
@@ -104,13 +105,16 @@ class UserFields(Dict[str, Union[bytes, int, Dict[str, bool]]]):
         FCtrl: Optional[Dict[str, bool]] = None,
         JoinReqType: Optional[Union[bytes, int]] = None,
         AppSKey: Optional[bytes] = None,
-        NwkSKey: Optional[bytes] = None
+        NwkSKey: Optional[bytes] = None,
+        RejoinType: Optional[Union[bytes, int]] = None,
+        RJCount0: Optional[bytes] = None,
     ):
         super().__init__()
         self["CFList"] = CFList
         self["RxDelay"] = RxDelay
         self["DLSettings"] = DLSettings
         self["NetID"] = NetID
+        self["JoinEUI"] = JoinEUI
         self["AppNonce"] = AppNonce
         self["DevNonce"] = DevNonce
         self["DevEUI"] = DevEUI
@@ -125,6 +129,8 @@ class UserFields(Dict[str, Union[bytes, int, Dict[str, bool]]]):
         self["JoinReqType"] = JoinReqType
         self["AppSKey"] = AppSKey
         self["NwkSKey"] = NwkSKey
+        self["RejoinType"] = RejoinType
+        self["RJCount0"] = RJCount0
         self._standardize()
 
     def _standardize(self):
@@ -141,7 +147,6 @@ class UserFields(Dict[str, Union[bytes, int, Dict[str, bool]]]):
         if isinstance(self["FOpts"], str):
             self["FOpts"] = unhexlify(self["FOpts"])
         if isinstance(self["Payload"], str):
-            #self["Payload"] = unhexlify(self["Payload"])
             self["Payload"] = self["Payload"].encode()
         if isinstance(self["CFList"], str):
             self["CFList"] = unhexlify(self["CFList"])
@@ -153,12 +158,19 @@ class UserFields(Dict[str, Union[bytes, int, Dict[str, bool]]]):
             self["DevAddr"] = unhexlify(self["DevAddr"])
         if isinstance(self["NetID"], str):
             self["NetID"] = unhexlify(self["NetID"])
+        if isinstance(self["JoinEUI"], str):
+            self["JoinEUI"] = unhexlify(self["JoinEUI"])
         if isinstance(self["AppNonce"], str):
             self["AppNonce"] = unhexlify(self["AppNonce"])
         if isinstance(self["DevNonce"], str):
             self["DevNonce"] = unhexlify(self["DevNonce"])
         if isinstance(self["FCtrl"], dict):
             self["FCtrl"] = {k: bool(v) for k, v in self["FCtrl"].items()}
+        if isinstance(self["RejoinType"], int):
+            self["RejoinType"] = bytes([self["RejoinType"]])
+        if isinstance(self["RJCount0"], str):
+            self["RJCount0"] = unhexlify(self["RJCount0"])
+
 
     @property
     def CFList(self) -> Optional[bytes]:
@@ -191,6 +203,14 @@ class UserFields(Dict[str, Union[bytes, int, Dict[str, bool]]]):
     @NetID.setter
     def NetID(self, value: Optional[bytes]):
         self["NetID"] = value
+
+    @property
+    def JoinEUI(self) -> Optional[bytes]:
+        return self.get("JoinEUI")
+
+    @JoinEUI.setter
+    def JoinEUI(self, value: Optional[bytes]):
+        self["JoinEUI"] = value
 
     @property
     def AppNonce(self) -> Optional[bytes]:
@@ -635,7 +655,7 @@ class LoraPacket:
 
     # Provide DLSettings.OptNeg as boolean
     def get_dlsettings_optneg(self) -> bool:
-        return (self.DLSettings[0] & Masks.DLSETTINGS_OPTNEG_MASK) >> Masks.DLSETTINGS_OPTNEG_POS.value
+        return (self.DLSettings[0] & Masks.DLSETTINGS_OPTNEG_MASK.value) >> Masks.DLSETTINGS_OPTNEG_POS.value
 
     # Provide RxDelay.Del as integer
     def get_rxdelay(self) -> int:
@@ -861,8 +881,26 @@ class LoraPacket:
         packet.AppEUI = fields["AppEUI"]
         packet.DevEUI = fields["DevEUI"]
         packet.DevNonce = fields["DevNonce"]
-        packet.MType = fields["MType"]
+        if fields["MType"] is not None:
+            if isinstance(fields["MType"], int):
+                packet.MHDR = bytes([fields["MType"] << 5])
+            elif isinstance(fields["MType"], str):
+                mhdr_idx = DESCRIPTIONS_MTYPE.get(fields["MType"])
+                if mhdr_idx is not None:
+                    packet.MHDR = bytes([mhdr_idx.value << 5])
+                else:
+                    raise ValueError("MType is unknown")
+            else:
+                raise ValueError("MType is required in a suitable format")
+        if packet.MIC is None:
+            packet.MIC = b'\xee' * 4
+        if fields.get("AppSKey"):
+            packet.AppSKey = fields["AppSKey"]
+
+        if fields.get("NwkSKey"):
+            packet.NwkSKey = fields["NwkSKey"]
         packet._update_packet()
+        packet.recalculate_mic()
         return packet
 
     @staticmethod
@@ -889,8 +927,26 @@ class LoraPacket:
         packet.DLSettings = fields["DLSettings"]
         packet.RxDelay = fields["RxDelay"]
         packet.CFList = fields.get("CFList", b"")
-        packet.MType = fields["MType"]
+        if fields["MType"] is not None:
+            if isinstance(fields["MType"], int):
+                packet.MHDR = bytes([fields["MType"] << 5])
+            elif isinstance(fields["MType"], str):
+                mhdr_idx = DESCRIPTIONS_MTYPE.get(fields["MType"])
+                if mhdr_idx is not None:
+                    packet.MHDR = bytes([mhdr_idx.value << 5])
+                else:
+                    raise ValueError("MType is unknown")
+            else:
+                raise ValueError("MType is required in a suitable format")
+        if packet.MIC is None:
+            packet.MIC = b'\xee' * 4
+        if fields.get("AppSKey"):
+            packet.AppSKey = fields["AppSKey"]
+
+        if fields.get("NwkSKey"):
+            packet.NwkSKey = fields["NwkSKey"]
         packet._update_packet()
+        packet.recalculate_mic()
         return packet
 
     @staticmethod
@@ -908,55 +964,83 @@ class LoraPacket:
         packet.RejoinType = fields["RejoinType"]
         packet.DevEUI = fields["DevEUI"]
         packet.RJCount0 = fields["RJCount0"]
-        packet.MType = fields["MType"]
+        if fields["MType"] is not None:
+            if isinstance(fields["MType"], int):
+                packet.MHDR = bytes([fields["MType"] << 5])
+            elif isinstance(fields["MType"], str):
+                mhdr_idx = DESCRIPTIONS_MTYPE.get(fields["MType"])
+                if mhdr_idx is not None:
+                    packet.MHDR = bytes([mhdr_idx.value << 5])
+                else:
+                    raise ValueError("MType is unknown")
+            else:
+                raise ValueError("MType is required in a suitable format")
+        if packet.MIC is None:
+            packet.MIC = b'\xee' * 4
+        if fields.get("AppSKey"):
+            packet.AppSKey = fields["AppSKey"]
+
+        if fields.get("NwkSKey"):
+            packet.NwkSKey = fields["NwkSKey"]
+
+        if fields.get("JoinEUI"):
+            packet.JoinEUI = fields["JoinEUI"]
+
+        if fields.get("NetID"):
+            packet.NetID = fields["NetID"]
+
+        if fields.get("JoinEUI"):
+            packet.JoinEUI = fields["JoinEUI"]
+
         packet._update_packet()
+        packet.recalculate_mic()
         return packet
 
     def __str__(self) -> str:
-        return f"LoraPacket: {self.to_string()}"
+        return f"LoraPacket: \n{self.to_string()}"
 
     def to_string(self) -> str:
         msg = ""
 
         if self.is_join_request_message():
             msg += "Message Type = Join Request\n"
-            msg += f"PHYPayload = {self.PHYPayload.hex().upper()}\n\n"
+            msg += f"PHYPayload   = {self.PHYPayload.hex().upper()}\n\n"
 
             msg += "( PHYPayload = MHDR[1] | MACPayload[..] | MIC[4] )\n"
-            msg += f"MHDR            = {self.MHDR.hex().upper()}\n"
-            msg += f"MACPayload = {self.MACPayload.hex().upper()}\n"
-            msg += f"MIC                = {self.MIC.hex().upper()}" + " MIC (OK)\n" if (self.AppSKey and self.verify_mic()) else " MIC (BAD != " + as_hex_string(self.calculate_mic()) + ")\n" if self.AppSKey else "\n"
+            msg += f"MHDR         = {self.MHDR.hex().upper()}\n"
+            msg += f"MACPayload   = {self.MACPayload.hex().upper()}\n"
+            msg += f"MIC          = {self.MIC.hex().upper()}" + " MIC (OK)\n" if (self.AppSKey and self.verify_mic()) else " MIC (BAD != " + as_hex_string(self.calculate_mic()) + ")\n" if self.AppSKey else "\n"
             msg += "\n"
 
             msg += "( MACPayload = AppEUI[8] | DevEUI[8] | DevNonce[2] )\n"
-            msg += f"AppEUI     = {self.AppEUI.hex().upper()}\n"
-            msg += f"DevEUI     = {self.DevEUI.hex().upper()}\n"
-            msg += f"DevNonce = {self.DevNonce.hex().upper()}\n"
+            msg += f"AppEUI       = {self.AppEUI.hex().upper()}\n"
+            msg += f"DevEUI       = {self.DevEUI.hex().upper()}\n"
+            msg += f"DevNonce     = {self.DevNonce.hex().upper()}\n"
 
         elif self.is_join_accept_message():
             msg += "Message Type = Join Accept\n"
-            msg += f"PHYPayload = {self.PHYPayload.hex().upper()}\n\n"
+            msg += f"PHYPayload   = {self.PHYPayload.hex().upper()}\n\n"
 
             msg += "( PHYPayload = MHDR[1] | MACPayload[..] | MIC[4] )\n"
-            msg += f"MHDR            = {self.MHDR.hex().upper()}\n"
-            msg += f"MACPayload = {self.MACPayload.hex().upper()}\n"
-            msg += f"MIC                = {self.MIC.hex().upper()}" + " MIC (OK)\n" if self.verify_mic() else " MIC (BAD != " + as_hex_string(self.calculate_mic()) + ")\n"
+            msg += f"MHDR         = {self.MHDR.hex().upper()}\n"
+            msg += f"MACPayload   = {self.MACPayload.hex().upper()}\n"
+            msg += f"MIC          = {self.MIC.hex().upper()}" + " MIC (OK)\n" if self.verify_mic() else " MIC (BAD != " + as_hex_string(self.calculate_mic()) + ")\n"
             msg += "\n"
 
             msg += "( MACPayload = AppNonce[3] | NetID[3] | DevAddr[4] | DLSettings[1] | RxDelay[1] | CFList[0|15] )\n"
             msg += f"AppNonce     = {self.AppNonce.hex().upper()}\n"
-            msg += f"NetID            = {self.NetID.hex().upper()}\n"
-            msg += f"DevAddr        = {self.DevAddr.hex().upper()}\n"
-            msg += f"DLSettings = {self.DLSettings.hex().upper()}\n"
-            msg += f"RxDelay        = {self.RxDelay.hex().upper()}\n"
-            msg += f"CFList         = {self.CFList.hex().upper()}\n"
+            msg += f"NetID        = {self.NetID.hex().upper()}\n"
+            msg += f"DevAddr      = {self.DevAddr.hex().upper()}\n"
+            msg += f"DLSettings   = {self.DLSettings.hex().upper()}\n"
+            msg += f"RxDelay      = {self.RxDelay.hex().upper()}\n"
+            msg += f"CFList       = {self.CFList.hex().upper()}\n"
 
             msg += f"DLSettings.RX1DRoffset = {self.get_dlsettings_rx1droffset()}\n"
-            msg += f"DLSettings.RX2DataRate = {self.get_dlsettings_rxtwodatarate()}"
-            msg += f"DLSettings.Delay             = {self.get_rxdelay()}\n"
+            msg += f"DLSettings.RX2DataRate = {self.get_dlsettings_rxtwodatarate()}\n"
+            msg += f"DLSettings.Delay       = {self.get_rxdelay()}\n"
             msg += "\n"
 
-            if self.CFList.length == 16:
+            if len(self.CFList) == 16:
                 msg += "( CFList = FreqCh4[3] | FreqCh5[3] | FreqCh6[3] | FreqCh7[3] | FreqCh8[3] )\n"
                 msg += f"CFList.Ch4Freq = {self.get_cflist_ch4freq()}\n"
                 msg += f"CFList.Ch5Freq = {self.get_cflist_ch5freq()}\n"
@@ -970,9 +1054,9 @@ class LoraPacket:
             msg += f"PHYPayload = {self.PHYPayload.hex().upper()}\n\n"
 
             msg += "( PHYPayload = MHDR[1] | MACPayload[..] | MIC[4] )\n"
-            msg += f"MHDR            = {self.MHDR.hex().upper()}\n"
-            msg += f"MACPayload = {self.MACPayload.hex().upper()}\n"
-            msg += f"MIC                = {self.MIC.hex().upper()}" + " MIC (OK)\n" if (self.AppSKey and self.verify_mic()) else " MIC (BAD != " + as_hex_string(self.calculate_mic()) + ")\n" if self.AppSKey else "\n"
+            msg += f"MHDR        = {self.MHDR.hex().upper()}\n"
+            msg += f"MACPayload  = {self.MACPayload.hex().upper()}\n"
+            msg += f"MIC         = {self.MIC.hex().upper()}" + " MIC (OK)\n" if (self.AppSKey and self.verify_mic()) else " MIC (BAD != " + as_hex_string(self.calculate_mic()) + ")\n" if self.AppSKey else "\n"
             msg += "\n"
 
             if self.RejoinType[0] == 0 or self.RejoinType[0] == 2:
@@ -994,33 +1078,33 @@ class LoraPacket:
             msg += "\n"
 
             msg += "( PHYPayload = MHDR[1] | MACPayload[..] | MIC[4] )\n"
-            msg += f"MHDR            = {self.MHDR.hex().upper()}\n"
-            msg += f"MACPayload = {self.MACPayload.hex().upper()}\n"
-            msg += f"MIC                = {self.MIC.hex().upper()}" + " MIC (OK)\n" if (self.NwkSKey and self.verify_mic()) else " MIC (BAD != " + as_hex_string(self.calculate_mic()) + ")\n" if self.NwkSKey else "\n"
+            msg += f"MHDR         = {self.MHDR.hex().upper()}\n"
+            msg += f"MACPayload   = {self.MACPayload.hex().upper()}\n"
+            msg += f"MIC          = {self.MIC.hex().upper()}" + " MIC (OK)\n" if (self.NwkSKey and self.verify_mic()) else " MIC (BAD != " + as_hex_string(self.calculate_mic()) + ")\n" if self.NwkSKey else "\n"
             msg += "\n"
 
             msg += "( MACPayload = FHDR | FPort | FRMPayload )\n"
-            msg += f"FHDR             = {self.FHDR.hex().upper()}\n"
-            msg += f"FPort            = {self.FPort.hex().upper()}\n"
-            msg += f"FRMPayload = {self.FRMPayload.hex().upper()}" + f"\nFRMPayload Plaintext = {self.decrypt().hex().upper()}\n" if self.AppSKey else ""
+            msg += f"FHDR         = {self.FHDR.hex().upper()}\n"
+            msg += f"FPort        = {self.FPort.hex().upper()}\n"
+            msg += f"FRMPayload   = {self.FRMPayload.hex().upper()}" + f"\n  Plaintext = {self.decrypt().hex().upper()}\n" if self.AppSKey else ""
             msg += "\n"
 
-            msg += "( FHDR = DevAddr[4] | FCtrl[1] | FCnt[2] | FOpts[0..15] )\n"
-            msg += f"DevAddr = {self.DevAddr.hex().upper()}\n"
+            msg += "( FHDR    = DevAddr[4] | FCtrl[1] | FCnt[2] | FOpts[0..15] )\n"
+            msg += f"DevAddr   = {self.DevAddr.hex().upper()}\n"
             msg += f"FCtrl     = {self.FCtrl.hex().upper()}\n"
-            msg += f"FCnt        = {self.FCnt.hex().upper()}\n"
+            msg += f"FCnt      = {self.FCnt.hex().upper()}\n"
             msg += f"FOpts     = {self.FOpts.hex().upper()}\n"
             msg += "\n"
 
-            msg += f"Message Type = {self.get_mtype()}\n"
+            msg += f"Message Type     = {self.get_mtype()}\n"
             msg += f"Direction        = {self.get_direction()}\n"
-            msg += f"FCnt                 = {self.get_fcnt()}\n"
+            msg += f"FCnt             = {self.get_fcnt()}\n"
             msg += f"FCtrl.ACK        = {self.get_fctrl_ack()}\n"
             msg += f"FCtrl.ADR        = {self.get_fctrl_adr()}\n"
             if (self._get_mtype() == MTypeEnum.CONFIRMED_DATA_DOWN) or (self._get_mtype() == MTypeEnum.UNCONFIRMED_DATA_DOWN) :
                 msg += f"FCtrl.FPending    = {self.get_fctrl_fpending()}\n"
             else:
-                msg += f"FCtrl.ADRACKReq = {self.get_fctrl_adrackreq()}\n"
+                msg += f"FCtrl.ADRACKReq  = {self.get_fctrl_adrackreq()}\n"
 
         return msg
 
