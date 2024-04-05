@@ -4,7 +4,6 @@ from binascii import unhexlify, hexlify
 from lib.LoraPacket import LoraPacket
 
 # Packet decoding
-"""
 packet = LoraPacket.from_wire(unhexlify("40F17DBE4900020001954378762B11FF0D"))
 
 print("packet.to_string()=\n" + str(packet))
@@ -22,7 +21,6 @@ AppSKey = unhexlify("ec925802ae430ca77fd3dd73cb2cc588")
 packet.set_app_key(AppSKey)
 print("Decrypted (ASCII)='" + packet.decrypt().decode() + "'")
 print("Decrypted (hex)='0x" + hexlify(packet.decrypt()).decode() + "'")
-"""
 
 # Packet creation
 constructed_packet = LoraPacket.from_fields(
@@ -50,7 +48,6 @@ constructed_packet = LoraPacket.from_fields(
         "RejoinType": unhexlify("00"),
         "RJCount0": unhexlify("0000"),
         #"JoinEUI": unhexlify("70B3D57ED00001A6"),
-        "NetID": unhexlify("FF08F5"),
     },
 
 )

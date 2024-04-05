@@ -38,20 +38,20 @@ Packet decoding is also wrapped in a simple command-line tool that accepts input
 
 ## Installation
 
-Add lib folder to your project and import lora_packet.
+Add lib folder to your project and import LoraPacket.
 
 ## Usage (command-line packet decoding):
 
 ```
-$ lora-packet-decode.py --hex 40F17DBE4900020001954378762B11FF0D
+$ cli.py --hex 40F17DBE4900020001954378762B11FF0D
 ```
 
 ```
-$ lora-packet-decode.py --base64 QPF9vkkAAgABlUN4disR/w0=
+$ cli.py --base64 QPF9vkkAAgABlUN4disR/w0=
 ```
 
 ```
-$ lora-packet-decode.py \
+$ cli.py \
         --appkey ec925802ae430ca77fd3dd73cb2cc588 \
         --nwkkey 44024241ed4ce9a68c6a8bc055233fd3 \
         --hex 40F17DBE4900020001954378762B11FF0D
@@ -59,11 +59,11 @@ $ lora-packet-decode.py \
 
 ## Usage (packet decoding from wire):
 
-### fromWire(buffer)
+### from_wire(buffer)
 
 Parse & create packet structure from wire-format buffer (i.e. "radio PHYPayload")
 
-### packet.getBuffers()
+### packet.get_fields()
 
 returns an object containing the decoded packet fields, named as per
 LoRa spec, e.g. _MHDR_, _MACPayload_ etc
@@ -71,50 +71,50 @@ LoRa spec, e.g. _MHDR_, _MACPayload_ etc
 Note: _DevAddr_ and _FCnt_ are stored big-endian, i.e. the way round
 that you'd expect to see them, not how they're sent down the wire.
 
-### packet.getMType()
+### packet.get_mtype()
 
 returns the packet _MType_ as a string (e.g. "Unconfirmed Data Up")
 
-### packet.getDir()
+### packet.get_dir()
 
 returns the direction (_Dir_) as a string ('up' or 'down')
 
-### packet.getFCnt()
+### packet.get_fcnt()
 
 returns the frame count (_FCnt_) as a number
 
-### packet.isConfirmed()
+### packet.is_confirmed()
 
-returns true if packet is confirmed, else returns false 
+returns true if packet is confirmed, else returns false
 
-### packet.getFPort()
+### packet.get_fport()
 
 returns the port (_FPort_) as a number (or null if FPort is absent)
 
-### packet.getFCtrlACK()
+### packet.get_fctrl_ack()
 
 returns the flag (_ACK_) of field _FCtrl_ as a boolean
 
-### packet.getFCtrlFPending()
+### packet.get_fctrl_fpending()
 
 returns the flag (_FPending_) of field _FCtrl_ as a boolean
 
-### packet.getFCtrlADR()
+### packet.get_fctrl_adr()
 
 returns the flag (_ADR_) of field _FCtrl_ as a boolean
 
-### packet.getFCtrlADRACKReq()
+### packet.get_fctrl_adrackreq()
 
 returns the flag (_ADRACKReq_) of field _FCtrl_ as a boolean
 
-### packet.encryptFOpts(NwkSEncKey, [, SNwkSIntKey] [, FCntMSBytes] [, ConfFCntDownTxDrTxCh])
-returns an object containing the encrypted FOpts field. 
+### packet.encrypt_fopts(NwkSEncKey, [, SNwkSIntKey] [, FCntMSBytes] [, ConfFCntDownTxDrTxCh])
+returns an object containing the encrypted FOpts field.
 If SNwkSIntKey is provided, the mic is recalculated and modifies the packet.
 
-### packet.decryptFOpts(NwkSEncKey, [, SNwkSIntKey] [, FCntMSBytes] [, ConfFCntDownTxDrTxCh])
+### packet.decrypt_fopts(NwkSEncKey, [, SNwkSIntKey] [, FCntMSBytes] [, ConfFCntDownTxDrTxCh])
 alias for encryptFOpts, just for sake of clarification
 
-### verifyMIC(packet, NwkSKey [, AppKey] [, FCntMSBytes])
+### packet.verify_mic([FCntMSBytes])
 
 returns a boolean; true if the MIC is correct (i.e. the value at the end of
 the packet data matches the calculation over the packet contents)
@@ -123,7 +123,7 @@ NB AppKey is used for Join Request/Accept, otherwise NwkSkey is used
 
 Optionally, if using 32-byt FCnts, supply the upper 2 bytes as a Buffer.
 
-### calculateMIC(packet, NwkSKey [, AppKey] [, FCntMSBytes])
+### packet.calculate_mic([FCntMSBytes])
 
 returns the MIC, as a buffer
 
@@ -131,7 +131,7 @@ NB AppKey is used for Join Request/Accept, otherwise NwkSkey is used
 
 Optionally, if using 32-byt FCnts, supply the upper 2 bytes as a Buffer.
 
-### recalculateMIC(packet, NwkSKey [, AppKey] [, FCntMSBytes])
+### packet.recalculate_mic([FCntMSBytes])
 
 calculates the MIC & updates the packet (no return value)
 
@@ -139,7 +139,7 @@ NB AppKey is used for Join Request/Accept, otherwise NwkSkey is used
 
 Optionally, if using 32-byt FCnts, supply the upper 2 bytes as a Buffer.
 
-### decrypt(packet, AppSKey, NwkSKey [, FCntMSBytes]
+### packet.decrypt([FCntMSBytes]
 
 decrypts and returns the payload as a buffer:
 The library cannot know whether this is an ASCII string or binary data,
@@ -148,18 +148,17 @@ so you will need to interpret it appropriately.
 NB the relevant key is chosen depending on the value of _FPort_,
 and NB key order is different than MIC APIs
 
-### decryptJoinAccept(inputData, appKey)
+### packet.decrypt_join_accept()
 
 decrypts and returns the Join Accept Message as a buffer:
 
 ```javascript
-const packet = lora_packet.fromWire(inputData);
-const DecryptedPacket = lora_packet.fromWire(lora_packet.decryptJoinAccept(packet, appKey));
+packet = LoraPacket.from_wire(unhexlify("40F17DBE4900020001954378762B11FF0D"))
 ```
 
 ## Usage (packet encoding to wire):
 
-### fromFields(data)
+### from_fields(data)
 
 takes an object with properties representing fields in the packet - see example below
 
@@ -167,8 +166,8 @@ takes an object with properties representing fields in the packet - see example 
   MIC is calculated (otherwise = "EEEEEEEE") and if the relevant encryption key
   (AppSKey or NwkSKey depending on port) then the payload is encrypted.
 
-The wire-format payload can be obtained by calling _getPHYPayload()_
-(or _getBuffers().PHYPayload_)
+The wire-format payload can be obtained by calling _to_wire()_
+(or _get_fields().PHYPayload_)
 
 
 #### Required fields:
@@ -198,52 +197,62 @@ For usage Refer to Lorawan 1.1 Spec.
 ## Example:
 
 ```python
-import lorapacket
 from binascii import unhexlify, hexlify
+from lib.LoraPacket import LoraPacket
 
 # Packet decoding
+packet = LoraPacket.from_wire(unhexlify("40F17DBE4900020001954378762B11FF0D"))
 
-packet = lorapacket.from_wire(unhexlify("40F17DBE4900020001954378762B11FF0D"))
+print("packet.to_string()=\n" + str(packet))
 
-print("packet.to_string()=\\n" + str(packet))
-
-print("packet MIC=" + hexlify(packet.MIC).decode('utf-8')) 
-print("FRMPayload=" + hexlify(packet.FRMPayload).decode('utf-8'))
+print("packet MIC=" + hexlify(packet.MIC).decode())
+print("FRMPayload=" + hexlify(packet.FRMPayload).decode())
 
 NwkSKey = unhexlify("44024241ed4ce9a68c6a8bc055233fd3")
+packet.set_nwk_key(NwkSKey)
+print("MIC check=" + ("OK" if packet.verify_mic() else "fail"))
 
-print("MIC check=" + str(lorapacket.verify_mic(packet, NwkSKey)))
-
-print("calculated MIC=" + hexlify(lorapacket.calculate_mic(packet, NwkSKey)).decode('utf-8'))
+print("Calculated MIC=" + hexlify(packet.calculate_mic()).decode())
 
 AppSKey = unhexlify("ec925802ae430ca77fd3dd73cb2cc588")
+packet.set_app_key(AppSKey)
+print("Decrypted (ASCII)='" + packet.decrypt().decode() + "'")
+print("Decrypted (hex)='0x" + hexlify(packet.decrypt()).decode() + "'")
 
-print("Decrypted (ASCII)='" + lorapacket.decrypt(packet, AppSKey, NwkSKey).decode('utf-8') + "'")
-
-print("Decrypted (hex)='0x" + hexlify(lorapacket.decrypt(packet, AppSKey, NwkSKey)).decode('utf-8') + "'")
-
-
-# Packet creation 
-
-constructed_packet = lorapacket.from_fields({
-    "MType": "Unconfirmed Data Up", 
-    "DevAddr": unhexlify("01020304"), 
-    "FCtrl": {
-        "ADR": False,
-        "ACK": True,
-        "ADRACKReq": False, 
-        "FPending": False
+# Packet creation
+constructed_packet = LoraPacket.from_fields(
+    {
+        "MType": "Rejoin Request",
+        "DevAddr": unhexlify("01020304"),
+        "FCtrl": {
+            "ADR": False,
+            "ACK": True,
+            "ADRACKReq": False,
+            "FPending": False,
+        },
+        "FCnt": unhexlify("0003"),
+        "Payload": "test",
+        "AppSKey": unhexlify("ec925802ae430ca77fd3dd73cb2cc588"),
+        "NwkSKey": unhexlify("44024241ed4ce9a68c6a8bc055233fd3"),
+        "AppEUI": unhexlify("70B3D57ED00001A6"),
+        "DevEUI": unhexlify("0004A30B001A6D4C"),
+        "DevNonce": unhexlify("0002"),
+        "AppNonce": unhexlify("473F81"),
+        "NetID": unhexlify("FF08F5"),
+        "DLSettings": unhexlify("23"),
+        "RxDelay": unhexlify("01"),
+        "CFList": unhexlify("0d3b1c0d3be40d3cac0d3d740d3e3c00"),
+        "RejoinType": unhexlify("00"),
+        "RJCount0": unhexlify("0000"),
+        #"JoinEUI": unhexlify("70B3D57ED00001A6"),
     },
-    "FCnt": 3,
-    "payload": "test"
-}, 
-AppSKey=unhexlify("ec925802ae430ca77fd3dd73cb2cc588"),
-NwkSKey=unhexlify("44024241ed4ce9a68c6a8bc055233fd3"))
 
-print("constructed_packet.to_string()=\\n" + str(constructed_packet))
+)
 
-wire_format_packet = constructed_packet.get_PHYPayload()
-print("wire_format_packet.to_string()=\\n" + hexlify(wire_format_packet).decode('utf-8'))
+print("\n\nconstructed_packet.to_string()= \n" + str(constructed_packet) + "\n")
+
+wire_format_packet = constructed_packet.to_bytes()
+print("wire_format_packet.to_string()= \n" + hexlify(wire_format_packet).decode() + "\n")
 ```
 
 
